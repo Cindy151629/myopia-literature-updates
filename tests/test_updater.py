@@ -41,13 +41,13 @@ class Tests(unittest.TestCase):
         c=config();p=record()
         def dated(value,journal='Fixture Journal',precision='day'):
             q=copy.deepcopy(p);q['journal']=journal;q['dates']['journal']=dict(value=value,precision=precision,raw=value);q['dates']['electronic']=[];return q
-        for value,journal,wanted in [('2023-09-14','Fixture Journal','retained'),('2023-09-13','Fixture Journal','older_than_window'),('2022-01-01','Nature Methods','extended_journal'),('2022-01-01','Scientific Reports','older_than_window'),('2022-01-01','Nature Methods Fake','older_than_window'),('2021-09-14','Nature Methods','extended_journal'),('2021-09-13','Nature Methods','older_than_window'),('2027-01-01','Nature Methods','future_publication')]:
+        for value,journal,wanted in [('2025-09-14','Fixture Journal','retained'),('2025-09-13','Fixture Journal','older_than_window'),('2024-01-01','Nature Methods','extended_journal'),('2024-01-01','Scientific Reports','older_than_window'),('2024-01-01','Nature Methods Fake','older_than_window'),('2023-09-14','Nature Methods','extended_journal'),('2023-09-13','Nature Methods','older_than_window'),('2027-01-01','Nature Methods','future_publication')]:
             with self.subTest(value=value,journal=journal):self.assertEqual(u.retention_reason(dated(value,journal),c,STAMP),wanted)
-        self.assertEqual(u.retention_reason(dated('2023-09',precision='month'),c,STAMP),'publication_date_unconfirmed')
-        self.assertEqual(u.retention_reason(dated('2022','Nature Methods','year'),c,STAMP),'extended_journal')
-        self.assertEqual(u.retention_reason(dated('2021','Nature Methods','year'),c,STAMP),'publication_date_unconfirmed')
-        self.assertTrue(u.extended_journal(dated('2022-01-01','Lancet (London, England)'),c))
-        self.assertEqual(str(u.retention_cutoff(c,'2024-02-29T00:00:00+00:00')),'2021-02-28')
+        self.assertEqual(u.retention_reason(dated('2025-09',precision='month'),c,STAMP),'publication_date_unconfirmed')
+        self.assertEqual(u.retention_reason(dated('2024','Nature Methods','year'),c,STAMP),'extended_journal')
+        self.assertEqual(u.retention_reason(dated('2023','Nature Methods','year'),c,STAMP),'publication_date_unconfirmed')
+        self.assertTrue(u.extended_journal(dated('2024-01-01','Lancet (London, England)'),c))
+        self.assertEqual(str(u.retention_cutoff(c,'2024-02-29T00:00:00+00:00')),'2023-02-28')
         old=dated('2000-01-01');old['dates']['modified']=dict(value='2026-09-14',precision='day',raw='2026 09 14')
         self.assertEqual(u.retention_reason(old,c,STAMP),'older_than_window')
         self.assertEqual(u.retention_reason(old,c,STAMP,{old['id']}),'baseline_metadata')

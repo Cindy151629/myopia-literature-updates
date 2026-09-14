@@ -44,15 +44,15 @@ PMID和规范化DOI用于稳定去重；相似题名不能强制合并，标识�
 
 ## 收录年限（2026-09-14用户调整）
 
-普通新题录仅保留滚动近三年发表；明确期刊白名单内的文献放宽至五年。白名单和正规刊名别名集中在domain.json，不按出版社名称前缀或模糊匹配扩展。该名单是本库的收录选择，不是声称普适的影响因子排名；包含IOVS等眼科专业核心刊。
+普通新题录仅保留滚动近一年发表；明确期刊白名单内的文献放宽至三年。白名单和正规刊名别名集中在domain.json，不按出版社名称前缀或模糊匹配扩展。该名单是本库的收录选择，不是声称普适的影响因子排名；包含IOVS等眼科专业核心刊。
 
-日期依据最早可确认的电子／期刊发表日期，不能用最近修订、数据库新收录时间替代。部分日期跨越边界时暂不纳入；不补造具体日期。每轮检索先限五年，取得题录后严格执行三年／期刊五年条件；每次发布也重新筛选整个累计状态，防止存量老题录重新进入当前快照。历史状态与旧快照保留用于审计。
+日期依据最早可确认的电子／期刊发表日期，不能用最近修订、数据库新收录时间替代。部分日期跨越边界时暂不纳入；不补造具体日期。每轮检索先限三年，取得题录后严格执行一年／期刊三年条件；每次发布也重新筛选整个累计状态，防止存量老题录重新进入当前快照。历史状态与旧快照保留用于审计。
 
 既有基础ID的机器题录仍可核查更正信息。当前以及未来完成的详细笔记均在本地长期保留，不受年份／期刊限制；本地生成器持久记录完成过笔记的ID。此完成状态和笔记内容不上传公开仓库。
 
 ### JCR Q1 admission (2026-09-14)
 
-Unfinished/new records must pass both the rolling publication window (3 years, or 5 years for the exact curated journal list) and verified JCR **JIF Quartile Q1**. Unknown quartiles are retained in an independent review queue, not formally admitted; known Q2–Q4 records are omitted from the active release. Historical state is retained. Base metadata exceptions permit correction checks without publishing private note-completion status.
+Unfinished/new records must pass both the rolling publication window (1 year, or 3 years for the exact curated journal list) and verified JCR **JIF Quartile Q1**. Unknown quartiles are retained in an independent review queue, not formally admitted; known Q2–Q4 records are omitted from the active release. Historical state is retained. Base metadata exceptions permit correction checks without publishing private note-completion status.
 
 `domain.json` records the 2026 JCR release (2025 data), public source URL and SHA-256, verification date, exact journal titles, eISSNs, source-page locators, source-reported quartiles and PubMed/ISSN-verified aliases for journals encountered in this library. The source is a table publicly reproduced by the Nikolaev Institute of Inorganic Chemistry; it is not a direct authenticated JCR database query. It does not provide category-specific quartiles; none are inferred. Unknown titles, unavailable JIF values, and future unverified editions never auto-pass. The ranking edition is pinned until another edition is verified; weekly literature discovery does not update annual JCR data automatically. No impact factor cutoff, SJR or AIS quartile is used.
 

@@ -43,7 +43,7 @@ def date_value(node):
     return {'value':value,'precision':'month','raw':raw}
 
 def retention_cutoff(config,stamp,years=None):
-    current=dt.date.fromisoformat(stamp[:10]);year=current.year-int(years if years is not None else config.get('retention',{}).get('years',3))
+    current=dt.date.fromisoformat(stamp[:10]);year=current.year-int(years if years is not None else config.get('retention',{}).get('years',1))
     return current.replace(year=year,day=min(current.day,calendar.monthrange(year,current.month)[1]))
 
 def extended_journal(p,config):
@@ -93,7 +93,7 @@ def retention_reason(p,config,stamp,base_ids=frozenset()):
     interval=publication_interval(p)
     if not interval:return 'publication_date_unconfirmed'
     extended=extended_journal(p,config)
-    cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',5) if extended else None);today=dt.date.fromisoformat(stamp[:10])
+    cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',3) if extended else None);today=dt.date.fromisoformat(stamp[:10])
     if interval[1]<cutoff:return 'older_than_window'
     if interval[0]>today:return 'future_publication'
     if interval[0]<cutoff:return 'publication_date_unconfirmed'
@@ -393,7 +393,7 @@ def run(config,base,state,http,stamp=None):
             try:
                 query=q['query']
                 if config.get('retention',{}).get('enabled'):
-                    cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',5))
+                    cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',3))
                     query=f'({query}) AND ("{cutoff:%Y/%m/%d}"[dp] : "{end:%Y/%m/%d}"[dp])'
                 ids=pub.search(query,field,start,end,qlog['pages'])
                 if len(ids)>config['max_records_per_query']:raise SourceError('Configured record budget exceeded')
@@ -475,7 +475,7 @@ def publish_snapshot(state,config,output,base=None):
       latest_event=latest.get('event'),schedule=dict(cron='17 1 * * 1',timezone='UTC',local_time='每周一北京时间09:17'),
       schedule_observed=any(r.get('event')=='schedule' for r in state['runs']),limitations=config['limitations'])
     if config.get('retention',{}).get('enabled'):
-        manifest['retention']=dict(years=config['retention']['years'],cutoff=retention_cutoff(config,stamp).isoformat(),extended_years=config['retention'].get('extended_years',5),extended_cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',5)).isoformat(),journal_whitelist_count=len(config['retention'].get('journal_whitelist',[])),as_of=stamp[:10],date_basis='earliest_electronic_or_journal_publication',counts=selection,stored_history_count=len(all_records))
+        manifest['retention']=dict(years=config['retention']['years'],cutoff=retention_cutoff(config,stamp).isoformat(),extended_years=config['retention'].get('extended_years',3),extended_cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',3)).isoformat(),journal_whitelist_count=len(config['retention'].get('journal_whitelist',[])),as_of=stamp[:10],date_basis='earliest_electronic_or_journal_publication',counts=selection,stored_history_count=len(all_records))
         manifest['retention']['jcr']={k:v for k,v in config['retention'].get('jcr',{}).items() if k!='journals'}
         manifest['retention']['quartile_pending']=selection.get('jcr_unverified',0)
     save(output/'manifest.json',manifest);save(output/'run-status.json',{k:v for k,v in latest.items() if k not in ['requests','queries']})

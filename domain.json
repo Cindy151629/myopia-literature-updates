@@ -3,7 +3,7 @@
   "domain_id": "myopia-ophthalmology-methods",
   "base_version": "myopia-279-20260914-v1",
   "domain_name": "近视／眼科及有明确迁移目标的跨领域方法学",
-  "rule_version": 5,
+  "rule_version": 6,
   "overlap_days": 30,
   "bootstrap_days": 90,
   "monthly_lookback_days": 365,
@@ -46,7 +46,7 @@
       "route": "transfer"
     }
   ],
-  "inclusion_policy": "主题相关性规则保持：近视/眼科直接证据与跨领域具体可迁移方法分开。未补详篇目须满足近三年且JCR JIF Q1；三至五年还须命中精选期刊白名单。分区未核验进入独立候选队列，不计正式纳入。所有已完成详细笔记永久豁免，名单仅本地保存。既有基础ID的元数据保留用于更正检查。",
+  "inclusion_policy": "主题相关性规则保持：近视/眼科直接证据与跨领域具体可迁移方法分开。未补详篇目须满足近一年且JCR JIF Q1；一至三年还须命中精选期刊白名单。分区未核验进入独立候选队列，不计正式纳入。所有已完成详细笔记永久豁免，名单仅本地保存。既有基础ID的元数据保留用于更正检查。",
   "source_policy": {
     "primary": "PubMed E-utilities",
     "supplement": "Europe PMC MED is a PubMed mirror, not independent corroboration",
@@ -61,11 +61,11 @@
   ],
   "retention": {
     "enabled": true,
-    "years": 3,
+    "years": 1,
     "date_basis": "earliest_verified_electronic_or_journal_publication",
     "partial_boundary": "exclude_until_date_can_be_verified",
     "baseline_metadata_exception": "Keep existing base IDs for correction checks; detailed-note exceptions are enforced locally without publishing reading status.",
-    "extended_years": 5,
+    "extended_years": 3,
     "journal_whitelist": [
       "Nature",
       "Science",
