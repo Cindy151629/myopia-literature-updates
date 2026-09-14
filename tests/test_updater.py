@@ -9,7 +9,7 @@ def raw():return u.parse_pubmed(u.ET.fromstring(XML))
 def record():
     p=raw();p['classification']=u.classify(p,['mainline']);p['provenance']=[dict(source='PubMed',url='https://pubmed.ncbi.nlm.nih.gov/1001/')];return u.enrich(p,None,STAMP)
 def config():
-    c=u.read(u.ROOT/'domain.json');c['queries']=[dict(id='fixture',query='fixture[tiab]',route='mainline')];c['crossref_per_run']=0;c['fulltext_identity_checks_per_run']=0;return c
+    c=u.read(u.ROOT/'domain.json');c['retention']['jcr']['enabled']=False;c['queries']=[dict(id='fixture',query='fixture[tiab]',route='mainline')];c['crossref_per_run']=0;c['fulltext_identity_checks_per_run']=0;return c
 class NoHTTP:
     audit=[]
 class FakePub:
@@ -19,6 +19,50 @@ class FakePub:
 class FailedPub(FakePub):
     def search(self,q,f,s,e,log):raise u.SourceError('incomplete pagination')
 class Tests(unittest.TestCase):
+    def test_jcr_verified_unknown_non_q1_and_baseline(self):
+        c=config();c['retention']['jcr']=dict(enabled=True,metric='JIF Quartile',journals=[dict(journal='Fixture Journal',quartile='Q1',aliases=['Verified Alias']),dict(journal='Other Journal',quartile='Q2')]);p=record()
+        self.assertEqual(u.retention_reason(p,c,STAMP),'retained')
+        p['journal']='Verified Alias';self.assertEqual(u.retention_reason(p,c,STAMP),'retained')
+        p['journal']='Fixture Journal Fake';self.assertEqual(u.retention_reason(p,c,STAMP),'jcr_unverified')
+        p['journal']='Other Journal';self.assertEqual(u.retention_reason(p,c,STAMP),'not_jcr_q1')
+        self.assertEqual(u.retention_reason(p,c,STAMP,{p['id']}),'baseline_metadata')
+        c['retention']['jcr']['metric']='SJR Quartile';self.assertEqual(u.retention_reason(p,c,STAMP),'jcr_unverified')
+
+    def test_unknown_jcr_queue_is_persisted_non_q1_is_filtered(self):
+        c=config();c['retention']['jcr']=dict(enabled=True,metric='JIF Quartile',journals=[])
+        with patch.object(u,'PubMed',FakePub):s,log=u.run(c,{'records':[]},u.new_state(c),NoHTTP(),STAMP)
+        self.assertEqual(len(s['records']),1)
+        with tempfile.TemporaryDirectory() as tmp,patch.object(u,'now',return_value=STAMP):
+            m=u.publish_snapshot(s,c,tmp,{'records':[]});self.assertEqual(m['retention']['quartile_pending'],1)
+            c['retention']['jcr']=dict(enabled=True,metric='JIF Quartile',journals=[dict(journal='Fixture Journal',quartile='Q2')])
+            m=u.publish_snapshot(s,c,tmp,{'records':[]});self.assertEqual(m['record_count'],0);self.assertEqual(len(s['records']),1)
+
+    def test_publication_window_and_exact_journal_whitelist(self):
+        c=config();p=record()
+        def dated(value,journal='Fixture Journal',precision='day'):
+            q=copy.deepcopy(p);q['journal']=journal;q['dates']['journal']=dict(value=value,precision=precision,raw=value);q['dates']['electronic']=[];return q
+        for value,journal,wanted in [('2023-09-14','Fixture Journal','retained'),('2023-09-13','Fixture Journal','older_than_window'),('2022-01-01','Nature Methods','extended_journal'),('2022-01-01','Scientific Reports','older_than_window'),('2022-01-01','Nature Methods Fake','older_than_window'),('2021-09-14','Nature Methods','extended_journal'),('2021-09-13','Nature Methods','older_than_window'),('2027-01-01','Nature Methods','future_publication')]:
+            with self.subTest(value=value,journal=journal):self.assertEqual(u.retention_reason(dated(value,journal),c,STAMP),wanted)
+        self.assertEqual(u.retention_reason(dated('2023-09',precision='month'),c,STAMP),'publication_date_unconfirmed')
+        self.assertEqual(u.retention_reason(dated('2022','Nature Methods','year'),c,STAMP),'extended_journal')
+        self.assertEqual(u.retention_reason(dated('2021','Nature Methods','year'),c,STAMP),'publication_date_unconfirmed')
+        self.assertTrue(u.extended_journal(dated('2022-01-01','Lancet (London, England)'),c))
+        self.assertEqual(str(u.retention_cutoff(c,'2024-02-29T00:00:00+00:00')),'2021-02-28')
+        old=dated('2000-01-01');old['dates']['modified']=dict(value='2026-09-14',precision='day',raw='2026 09 14')
+        self.assertEqual(u.retention_reason(old,c,STAMP),'older_than_window')
+        self.assertEqual(u.retention_reason(old,c,STAMP,{old['id']}),'baseline_metadata')
+        recent=dated('2026-01-01','Nature');recent['dates']['electronic']=[dict(value='2020-01-01',precision='day',raw='2020 01 01')]
+        self.assertEqual(u.retention_reason(recent,c,STAMP),'older_than_window')
+        recent['dates']['journal']=None;recent['dates']['electronic']=[]
+        self.assertEqual(u.retention_reason(recent,c,STAMP),'publication_date_unconfirmed')
+
+    def test_retention_filters_release_without_erasing_saved_history(self):
+        c=config();s=u.new_state(c);p=record();p['dates']['journal']=dict(value='2000',precision='year',raw='2000');p['dates']['electronic']=[];s['records'][p['id']]=p
+        with tempfile.TemporaryDirectory() as tmp,patch.object(u,'now',return_value=STAMP):
+            manifest=u.publish_snapshot(s,c,tmp,{'records':[]});self.assertEqual(manifest['record_count'],0);self.assertEqual(len(s['records']),1)
+            manifest=u.publish_snapshot(s,c,tmp,{'records':[{'id':p['id']}]});self.assertEqual(manifest['record_count'],1)
+            self.assertEqual(manifest['retention']['counts']['baseline_metadata'],1)
+
     def test_pubmed_date_semantics_and_precision(self):
         p=raw();self.assertEqual(p['dates']['created']['value'],'2026-08-30');self.assertEqual(p['dates']['entry']['value'],'2025-12-03');self.assertEqual(p['dates']['modified']['value'],'2026-09-01');self.assertEqual(p['dates']['journal']['value'],'2025-12');self.assertEqual(p['dates']['journal']['precision'],'month')
     def test_pubmed_book_chapter(self):

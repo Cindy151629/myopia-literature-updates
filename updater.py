@@ -4,7 +4,7 @@ PubMed: crdt == PubMedPubDate[PubStatus=entrez]; edat == pubmed;
 lr == MedlineCitation/DateRevised. Publisher 'revised' is NOT database lr.
 Raw abstracts/full texts are transient and never enter public state or snapshots.
 """
-import argparse, copy, datetime as dt, hashlib, json, os, re, ssl, time, uuid
+import argparse, calendar, copy, datetime as dt, hashlib, json, os, re, ssl, time, uuid
 import urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -41,6 +41,65 @@ def date_value(node):
         try:dt.date(int(year),int(month),int(day));return {'value':value+f'-{int(day):02d}','precision':'day','raw':raw}
         except ValueError:pass
     return {'value':value,'precision':'month','raw':raw}
+
+def retention_cutoff(config,stamp,years=None):
+    current=dt.date.fromisoformat(stamp[:10]);year=current.year-int(years if years is not None else config.get('retention',{}).get('years',3))
+    return current.replace(year=year,day=min(current.day,calendar.monthrange(year,current.month)[1]))
+
+def extended_journal(p,config):
+    policy=config.get('retention',{})
+    norm=lambda value:re.sub(r'[^a-z0-9]+',' ',str(value).lower().replace('&',' and ')).strip()
+    name=norm(p.get('journal',''));aliases={norm(k):norm(v) for k,v in policy.get('journal_aliases',{}).items()}
+    return aliases.get(name,name) in {norm(x) for x in policy.get('journal_whitelist',[])}
+
+_jcr_cache=None
+def jcr_decision(p,config):
+    """Only explicit source-reported JIF quartiles; unknown is a review queue."""
+    global _jcr_cache
+    policy=config.get('retention',{}).get('jcr',{})
+    if not policy.get('enabled'):return 'disabled'
+    if policy.get('metric')!='JIF Quartile':return 'jcr_unverified'
+    norm=lambda s:re.sub(r'[^a-z0-9]+',' ',str(s).lower().replace('&',' and ')).strip()
+    if _jcr_cache is None or _jcr_cache[0] is not policy:
+        index={}
+        for row in policy.get('journals',[]):
+            for name in [row['journal']]+row.get('aliases',[]):
+                key=norm(name)
+                if key in index and index[key]!=row:raise ValueError('Ambiguous JCR journal identity')
+                index[key]=row
+        _jcr_cache=(policy,index)
+    row=_jcr_cache[1].get(norm(p.get('journal','')))
+    if not row or row.get('quartile') not in ('Q1','Q2','Q3','Q4'):return 'jcr_unverified'
+    return 'q1' if row['quartile']=='Q1' else 'not_jcr_q1'
+
+def publication_interval(p):
+    """Earliest publication range, never database creation or revision dates."""
+    ranges=[]
+    for d in [p.get('dates',{}).get('journal')]+p.get('dates',{}).get('electronic',[]):
+        value=(d or {}).get('value','') or '';precision=(d or {}).get('precision')
+        try:
+            if precision=='day' and re.fullmatch(r'\d{4}-\d{2}-\d{2}',value):lo=hi=dt.date.fromisoformat(value)
+            elif precision=='month' and re.fullmatch(r'\d{4}-\d{2}',value):
+                y,m=map(int,value.split('-'));lo=dt.date(y,m,1);hi=dt.date(y,m,calendar.monthrange(y,m)[1])
+            elif precision=='year' and re.fullmatch(r'\d{4}',value):lo=dt.date(int(value),1,1);hi=dt.date(int(value),12,31)
+            else:continue
+            ranges.append((lo,hi))
+        except (ValueError,TypeError):continue
+    return (min(x[0] for x in ranges),min(x[1] for x in ranges)) if ranges else None
+
+def retention_reason(p,config,stamp,base_ids=frozenset()):
+    if not config.get('retention',{}).get('enabled'):return 'retained'
+    if p['id'] in base_ids:return 'baseline_metadata'
+    interval=publication_interval(p)
+    if not interval:return 'publication_date_unconfirmed'
+    extended=extended_journal(p,config)
+    cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',5) if extended else None);today=dt.date.fromisoformat(stamp[:10])
+    if interval[1]<cutoff:return 'older_than_window'
+    if interval[0]>today:return 'future_publication'
+    if interval[0]<cutoff:return 'publication_date_unconfirmed'
+    quartile=jcr_decision(p,config)
+    if quartile not in ('q1','disabled'):return quartile
+    return 'extended_journal' if extended and interval[0]<retention_cutoff(config,stamp) else 'retained'
 
 class SourceError(RuntimeError):pass
 class HTTP:
@@ -325,13 +384,18 @@ def run(config,base,state,http,stamp=None):
     monthly=bool(monthly_anchor) and (dt.datetime.fromisoformat(stamp)-dt.datetime.fromisoformat(monthly_anchor)).days>=config['monthly_interval_days']
     runlog=dict(id=stamp+'-'+uuid.uuid4().hex[:8],started_at=stamp,finished_at=None,event=os.environ.get('GITHUB_EVENT_NAME','local'),queries=[],errors=[],counts={k:0 for k in ['candidates','added','updated','unchanged','conflict']},monthly=monthly,status='running',code_sha256=digest(Path(__file__).read_bytes()),config_sha256=digest(encoded(config)))
     pub=PubMed(http,config['page_size']);seen={};crleft=config['crossref_per_run'];ftleft=config['fulltext_identity_checks_per_run']
+    base_ids={p['id'] for p in base['records']}
     for q in config['queries']:
         for field in ['crdt','lr']:
             print('Retrieving '+q['id']+':'+field,flush=True)
             key,signature,start,end=window(config,state,q,field,stamp,monthly)
             qlog=dict(id=key,signature=signature,start=str(start),end=str(end),pages=[],complete=False)
             try:
-                ids=pub.search(q['query'],field,start,end,qlog['pages'])
+                query=q['query']
+                if config.get('retention',{}).get('enabled'):
+                    cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',5))
+                    query=f'({query}) AND ("{cutoff:%Y/%m/%d}"[dp] : "{end:%Y/%m/%d}"[dp])'
+                ids=pub.search(query,field,start,end,qlog['pages'])
                 if len(ids)>config['max_records_per_query']:raise SourceError('Configured record budget exceeded')
                 missing=[id for id in ids if id not in seen];fetched=[]
                 for i in range(0,len(missing),config['fetch_batch_size']):fetched+=pub.fetch(missing[i:i+config['fetch_batch_size']])
@@ -340,6 +404,12 @@ def run(config,base,state,http,stamp=None):
                 transaction=copy.deepcopy(state);identity_index=IdentityIndex(base,transaction);counts={k:0 for k in runlog['counts']}
                 for id in ids:
                     p=copy.deepcopy(seen[id]);p['matched_queries']=[q['id']]
+                    exempt=bool(base_ids & identity_index.matches(p).keys())
+                    reason=retention_reason(p,config,stamp,{p['id']} if exempt else base_ids)
+                    if reason not in ('retained','extended_journal','baseline_metadata','jcr_unverified'):
+                        excluded=qlog.setdefault('publication_window_excluded',{})
+                        excluded[reason]=excluded.get(reason,0)+1
+                        continue
                     prior=next((x for x in identity_index.matches(p).values() if x['id'] in transaction['records']),{})
                     routes=[x['route'] for x in config['queries'] if x['id'] in prior.get('matched_queries',[])+[q['id']]]
                     p['classification']=classify(p,routes)
@@ -384,9 +454,15 @@ def run(config,base,state,http,stamp=None):
     state['runs'].append(runlog)
     return state,runlog
 
-def publish_snapshot(state,config,output):
+def publish_snapshot(state,config,output,base=None):
     """A cumulative snapshot; manifest switched last. Old immutable versions retained."""
-    output=Path(output);records=sorted(state['records'].values(),key=lambda p:p['id'])
+    output=Path(output);all_records=sorted(state['records'].values(),key=lambda p:p['id']);stamp=now()
+    base=base if base is not None else read(ROOT/'base_index.json',{'records':[]})
+    base_ids={p['id'] for p in base['records']};selection={}
+    records=[]
+    for p in all_records:
+        reason=retention_reason(p,config,stamp,base_ids);selection[reason]=selection.get(reason,0)+1
+        if reason in ('retained','extended_journal','baseline_metadata','jcr_unverified'):records.append(p)
     for p in records:validate_record(p)
     snapshot=dict(schema_version=1,domain_id=config['domain_id'],base_version=config['base_version'],records=records,conflicts=list(state['conflicts'].values()))
     raw=encoded(snapshot);version=digest(raw);name='snapshots/'+version+'.json'
@@ -398,6 +474,10 @@ def publish_snapshot(state,config,output):
       source_watermarks=state['watermarks'],counts=latest.get('counts',{}),pending_review=sum(p['classification']['pending'] for p in records),
       latest_event=latest.get('event'),schedule=dict(cron='17 1 * * 1',timezone='UTC',local_time='每周一北京时间09:17'),
       schedule_observed=any(r.get('event')=='schedule' for r in state['runs']),limitations=config['limitations'])
+    if config.get('retention',{}).get('enabled'):
+        manifest['retention']=dict(years=config['retention']['years'],cutoff=retention_cutoff(config,stamp).isoformat(),extended_years=config['retention'].get('extended_years',5),extended_cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',5)).isoformat(),journal_whitelist_count=len(config['retention'].get('journal_whitelist',[])),as_of=stamp[:10],date_basis='earliest_electronic_or_journal_publication',counts=selection,stored_history_count=len(all_records))
+        manifest['retention']['jcr']={k:v for k,v in config['retention'].get('jcr',{}).items() if k!='journals'}
+        manifest['retention']['quartile_pending']=selection.get('jcr_unverified',0)
     save(output/'manifest.json',manifest);save(output/'run-status.json',{k:v for k,v in latest.items() if k not in ['requests','queries']})
     (output/'.nojekyll').write_text('');return manifest
 
@@ -408,7 +488,7 @@ def main():
     if args.command=='run':
         http=HTTP(max_requests=config['max_requests']);state,log=run(config,base,state,http)
         save(statepath,state);save(Path(args.state_dir)/'runs'/(log['id'].replace(':','-')+'.json'),log)
-    manifest=publish_snapshot(state,config,args.output)
+    manifest=publish_snapshot(state,config,args.output,base)
     print(json.dumps({k:manifest[k] for k in ['data_version','record_count','run_status','last_successful_search']},ensure_ascii=False))
     # Failure is explicit, but valid partial query results and status remain publishable.
     if state['runs'] and state['runs'][-1]['status']!='success':return 2
