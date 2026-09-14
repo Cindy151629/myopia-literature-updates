@@ -52,6 +52,18 @@ def extended_journal(p,config):
     name=norm(p.get('journal',''));aliases={norm(k):norm(v) for k,v in policy.get('journal_aliases',{}).items()}
     return aliases.get(name,name) in {norm(x) for x in policy.get('journal_whitelist',[])}
 
+def selection_reason(p,config):
+    """Metadata triage, not a claim of full-text quality assessment."""
+    policy=config.get('retention',{}).get('selection',{})
+    if not policy.get('enabled'):return None
+    if policy.get('whitelist_only') and not extended_journal(p,config):return 'not_selected_journal'
+    types=set(p.get('publication_types',[]));title=str(p.get('title','')).strip()
+    if types & set(policy.get('ancillary_types',[])) or re.search(r'^(?:reply|comment|commentary|correction|corrigendum|erratum)\b|^re\s*:',title,re.I):return 'ancillary_publication'
+    synthesis=bool(types & set(policy.get('synthesis_types',[])) or re.search(r'\bsystematic\s+review\b|\bmeta[\s\-–—]?analys(?:is|es)\b',title,re.I))
+    verified=any(p.get('pmid')==r.get('pmid') and doi(p.get('doi'))==doi(r.get('doi')) for r in policy.get('verified_reports',[]))
+    if policy.get('exclude_ordinary_reviews') and types & {'Review','Scoping Review'} and not synthesis and not verified:return 'ordinary_review'
+    return None
+
 _jcr_cache=None
 def jcr_decision(p,config):
     """Only explicit source-reported JIF quartiles; unknown is a review queue."""
@@ -97,6 +109,8 @@ def retention_reason(p,config,stamp,base_ids=frozenset()):
     if interval[1]<cutoff:return 'older_than_window'
     if interval[0]>today:return 'future_publication'
     if interval[0]<cutoff:return 'publication_date_unconfirmed'
+    selected=selection_reason(p,config)
+    if selected:return selected
     quartile=jcr_decision(p,config)
     if quartile not in ('q1','disabled'):return quartile
     return 'extended_journal' if extended and interval[0]<retention_cutoff(config,stamp) else 'retained'
@@ -477,6 +491,7 @@ def publish_snapshot(state,config,output,base=None):
     if config.get('retention',{}).get('enabled'):
         manifest['retention']=dict(years=config['retention']['years'],cutoff=retention_cutoff(config,stamp).isoformat(),extended_years=config['retention'].get('extended_years',3),extended_cutoff=retention_cutoff(config,stamp,config['retention'].get('extended_years',3)).isoformat(),journal_whitelist_count=len(config['retention'].get('journal_whitelist',[])),as_of=stamp[:10],date_basis='earliest_electronic_or_journal_publication',counts=selection,stored_history_count=len(all_records))
         manifest['retention']['jcr']={k:v for k,v in config['retention'].get('jcr',{}).items() if k!='journals'}
+        manifest['retention']['selection']=config['retention'].get('selection',{})
         manifest['retention']['quartile_pending']=selection.get('jcr_unverified',0)
     save(output/'manifest.json',manifest);save(output/'run-status.json',{k:v for k,v in latest.items() if k not in ['requests','queries']})
     (output/'.nojekyll').write_text('');return manifest

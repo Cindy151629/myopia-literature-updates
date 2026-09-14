@@ -9,7 +9,7 @@ def raw():return u.parse_pubmed(u.ET.fromstring(XML))
 def record():
     p=raw();p['classification']=u.classify(p,['mainline']);p['provenance']=[dict(source='PubMed',url='https://pubmed.ncbi.nlm.nih.gov/1001/')];return u.enrich(p,None,STAMP)
 def config():
-    c=u.read(u.ROOT/'domain.json');c['retention']['jcr']['enabled']=False;c['queries']=[dict(id='fixture',query='fixture[tiab]',route='mainline')];c['crossref_per_run']=0;c['fulltext_identity_checks_per_run']=0;return c
+    c=u.read(u.ROOT/'domain.json');c['retention']['jcr']['enabled']=False;c['retention']['selection']['enabled']=False;c['queries']=[dict(id='fixture',query='fixture[tiab]',route='mainline')];c['crossref_per_run']=0;c['fulltext_identity_checks_per_run']=0;return c
 class NoHTTP:
     audit=[]
 class FakePub:
@@ -19,6 +19,31 @@ class FakePub:
 class FailedPub(FakePub):
     def search(self,q,f,s,e,log):raise u.SourceError('incomplete pagination')
 class Tests(unittest.TestCase):
+    def test_selected_journal_and_publication_type_gate(self):
+        c=config();c['retention']['selection']['enabled']=True;p=record();p['journal']='Nature Methods'
+        cases=[('An editing experiment',['Journal Article'],'retained'),('Original data in a research letter',['Letter'],'retained'),('A narrative review',['Review'],'ordinary_review'),('A systematic review and meta-analysis',['Review'],'retained'),('A new systematic approach to editing',['Review'],'ordinary_review'),('Guidance for clinical practice',['Review','Practice Guideline'],'retained'),('Re: Prior myopia study',['Letter'],'ancillary_publication'),('Reply to Jones',['Letter'],'ancillary_publication'),('Original article title retained by correction',['Journal Article','Published Erratum'],'ancillary_publication')]
+        for title,types,wanted in cases:
+            with self.subTest(title=title):
+                p['title']=title;p['publication_types']=types;self.assertEqual(u.retention_reason(p,c,STAMP),wanted)
+        p['publication_types']=['Journal Article'];p['journal']='Scientific Reports';self.assertEqual(u.retention_reason(p,c,STAMP),'not_selected_journal')
+        p['journal']='Nature Methods Fake';self.assertEqual(u.retention_reason(p,c,STAMP),'not_selected_journal')
+        self.assertEqual(u.retention_reason(p,c,STAMP,{p['id']}),'baseline_metadata')
+
+    def test_verified_report_requires_matching_identifiers(self):
+        c=config();c['retention']['selection']['enabled']=True;p=record();p.update(journal='Investigative ophthalmology & visual science',pmid='40600762',doi='10.1167/iovs.66.9.7',publication_types=['Review'])
+        self.assertEqual(u.retention_reason(p,c,STAMP),'retained')
+        p['doi']='10.1234/another';self.assertEqual(u.retention_reason(p,c,STAMP),'ordinary_review')
+        p.update(doi='10.1167/iovs.66.9.7',publication_types=['Published Erratum']);self.assertEqual(u.retention_reason(p,c,STAMP),'ancillary_publication')
+
+    def test_selection_release_preserves_history_and_original_notices(self):
+        c=config();c['retention']['selection']['enabled']=True;s=u.new_state(c);p=record();p['journal']='Nature Methods';p['notices']=[dict(type='ErratumIn',pmid='1002',citation='Correction')];p['attention']=True;s['records'][p['id']]=p
+        correction=copy.deepcopy(p);correction.update(id='PMID1002',pmid='1002',doi='10.1234/correction',publication_types=['Published Erratum']);s['records'][correction['id']]=correction
+        review=copy.deepcopy(p);review.update(id='PMID1003',pmid='1003',doi='10.1234/review',publication_types=['Review']);s['records'][review['id']]=review
+        saved=copy.deepcopy(s)
+        with tempfile.TemporaryDirectory() as tmp,patch.object(u,'now',return_value=STAMP):
+            m=u.publish_snapshot(s,c,tmp,{'records':[]});rows=u.read(Path(tmp)/m['snapshot'])['records'];self.assertEqual([r['id'] for r in rows],[p['id']]);self.assertEqual(rows[0]['notices'],p['notices']);self.assertEqual(s,saved);self.assertTrue(m['retention']['selection']['enabled'])
+            m=u.publish_snapshot(s,c,tmp,{'records':[{'id':review['id']}]});self.assertEqual(m['record_count'],2)
+
     def test_jcr_verified_unknown_non_q1_and_baseline(self):
         c=config();c['retention']['jcr']=dict(enabled=True,metric='JIF Quartile',journals=[dict(journal='Fixture Journal',quartile='Q1',aliases=['Verified Alias']),dict(journal='Other Journal',quartile='Q2')]);p=record()
         self.assertEqual(u.retention_reason(p,c,STAMP),'retained')

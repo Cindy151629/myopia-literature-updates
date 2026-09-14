@@ -36,7 +36,7 @@ PMID和规范化DOI用于稳定去重；相似题名不能强制合并，标识�
 
 ## 本地阅读器接通与验收
 
-本地生成源 `work/cloud_updates.mjs` 和 `reader_config.json` 留在用户电脑。得到公开许可并核实正式仓库/Pages后，配置唯一的清单URL、回执URL和 `approved_publication: true`，重建同一个本地HTML。打开时先显示279篇基线及原笔记，再以无凭证CORS请求读取累计版本，核验领域、基线、哈希、结构与链接协议。不会跳转到在线网站，也不会写回磁盘或导出。
+本地生成源 `work/cloud_updates.mjs` 和 `reader_config.json` 留在用户电脑。得到公开许可并核实正式仓库/Pages后，配置唯一的清单URL、回执URL和 `approved_publication: true`，重建同一个本地HTML。HTML完整嵌入279篇基线笔记，打开时按当前规则显示已补详笔记及符合条件的本地篇目，再以无凭证CORS请求读取累计版本，核验领域、基线、哈希、结构与链接协议。不会跳转到在线网站，也不会写回磁盘或导出。
 
 验收必须分别完成：两次真实云端运行且使用不同runner；第二次恢复 `data` 分支而非临时文件；正式HTTPS内容与CORS核验；真实Chrome `file://` 本地阅读（包括搜索、分类、累计补抓、失败保留原内容）。仅DOM模拟通过不能代替这些验收。工作流启用和观察到真实 `schedule` 事件要分别记录。
 
@@ -44,7 +44,7 @@ PMID和规范化DOI用于稳定去重；相似题名不能强制合并，标识�
 
 ## 收录年限（2026-09-14用户调整）
 
-普通新题录仅保留滚动近一年发表；明确期刊白名单内的文献放宽至三年。白名单和正规刊名别名集中在domain.json，不按出版社名称前缀或模糊匹配扩展。该名单是本库的收录选择，不是声称普适的影响因子排名；包含IOVS等眼科专业核心刊。
+未补详题录仅收滚动近三年、明确期刊白名单内且已核验 JCR Q1 的文章；普通期刊即使为近一年 Q1 也不正式纳入。排除普通叙述性综述、评论、回复、社论和独立勘误，保留原始研究候选、系统综述／Meta分析／指南及逐篇核验的权威报告。Letter 标签不自动排除研究通信。数据库类型不全时以明确的 systematic review／meta-analysis 题名补充判别；筛选不代表逐篇全文质量审查。勘误不单独占据主书架，但原文关联的更正／撤稿提示、历史记录和已知ID定期复核继续保留。白名单和正规刊名别名集中在domain.json，不按出版社名称前缀或模糊匹配扩展。该名单是本库的收录选择，不是声称普适的影响因子排名；包含IOVS等眼科专业核心刊。
 
 日期依据最早可确认的电子／期刊发表日期，不能用最近修订、数据库新收录时间替代。部分日期跨越边界时暂不纳入；不补造具体日期。每轮检索先限三年，取得题录后严格执行一年／期刊三年条件；每次发布也重新筛选整个累计状态，防止存量老题录重新进入当前快照。历史状态与旧快照保留用于审计。
 
@@ -52,7 +52,7 @@ PMID和规范化DOI用于稳定去重；相似题名不能强制合并，标识�
 
 ### JCR Q1 admission (2026-09-14)
 
-Unfinished/new records must pass both the rolling publication window (1 year, or 3 years for the exact curated journal list) and verified JCR **JIF Quartile Q1**. Unknown quartiles are retained in an independent review queue, not formally admitted; known Q2–Q4 records are omitted from the active release. Historical state is retained. Base metadata exceptions permit correction checks without publishing private note-completion status.
+Unfinished/new records must be within the rolling 3-year window, on the exact curated journal list, pass the article-type selection, and have verified JCR **JIF Quartile Q1**. Unknown quartiles are retained in an independent review queue, not formally admitted; known Q2–Q4 records are omitted from the active release. Historical state is retained. Base metadata exceptions permit correction checks without publishing private note-completion status.
 
 `domain.json` records the 2026 JCR release (2025 data), public source URL and SHA-256, verification date, exact journal titles, eISSNs, source-page locators, source-reported quartiles and PubMed/ISSN-verified aliases for journals encountered in this library. The source is a table publicly reproduced by the Nikolaev Institute of Inorganic Chemistry; it is not a direct authenticated JCR database query. It does not provide category-specific quartiles; none are inferred. Unknown titles, unavailable JIF values, and future unverified editions never auto-pass. The ranking edition is pinned until another edition is verified; weekly literature discovery does not update annual JCR data automatically. No impact factor cutoff, SJR or AIS quartile is used.
 
