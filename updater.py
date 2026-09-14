@@ -4,7 +4,7 @@ PubMed: crdt == PubMedPubDate[PubStatus=entrez]; edat == pubmed;
 lr == MedlineCitation/DateRevised. Publisher 'revised' is NOT database lr.
 Raw abstracts/full texts are transient and never enter public state or snapshots.
 """
-import argparse, calendar, copy, datetime as dt, hashlib, json, os, re, ssl, time, uuid
+import argparse, calendar, copy, datetime as dt, hashlib, html, json, os, re, ssl, time, uuid
 import urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -360,8 +360,12 @@ def enrich(p,http,stamp,crossref=False,fulltext=False,prior=None):
     if crossref and p.get('doi'):
         try:
             url='https://api.crossref.org/works/'+urllib.parse.quote(p['doi'],safe='');d=http.json(url)['message']
-            norm=lambda s:re.sub(r'\W','',str(s).lower())
-            matched=doi(d.get('DOI'))==p['doi'] and any(norm(t)==norm(p['title']) for t in d.get('title',[]))
+            # Crossref often stores subtitles separately and uses inline JATS markup.
+            # Compare complete normalized titles, never a prefix or fuzzy similarity.
+            norm=lambda s:re.sub(r'\W','',html.unescape(re.sub(r'<[^>]*>','',str(s))).lower())
+            titles=d.get('title',[]);subtitles=d.get('subtitle',[])
+            candidates=titles+[t+': '+s for t in titles for s in subtitles if s]
+            matched=doi(d.get('DOI'))==p['doi'] and any(norm(t)==norm(p['title']) for t in candidates)
             p['crossref']=dict(status='matched' if matched else 'needs_review',checked_at=stamp,url=url)
             if not matched:p['classification']['pending']=True;p['classification']['reason']+=' Crossref题名/DOI不一致，待核对。'
             for relation in ['has-preprint','is-preprint-of','is-version-of','has-version']:
@@ -428,7 +432,9 @@ def run(config,base,state,http,stamp=None):
                     routes=[x['route'] for x in config['queries'] if x['id'] in prior.get('matched_queries',[])+[q['id']]]
                     p['classification']=classify(p,routes)
                     def due(value,days):return not value or (dt.datetime.fromisoformat(stamp)-dt.datetime.fromisoformat(value)).days>=days
-                    do_cr=bool(crleft and p.get('doi') and due(prior.get('crossref',{}).get('checked_at'),7 if prior.get('crossref',{}).get('status')=='unverified' else 28))
+                    old_cr=prior.get('crossref',{})
+                    matcher_recheck=old_cr.get('status')=='needs_review' and (old_cr.get('checked_at') or '')<config.get('crossref_identity_revision','')
+                    do_cr=bool(crleft and p.get('doi') and (matcher_recheck or due(old_cr.get('checked_at'),7 if old_cr.get('status')=='unverified' else 28)))
                     do_ft=bool(ftleft and p.get('pmcid') and due(prior.get('fulltext',{}).get('body_attempt_at'),28))
                     p=enrich(p,http,stamp,do_cr,do_ft,prior);crleft-=int(do_cr);ftleft-=int(do_ft)
                     if prior.get('crossref',{}).get('checked_at') and not do_cr:p['crossref']=prior['crossref']

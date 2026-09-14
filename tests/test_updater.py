@@ -19,6 +19,24 @@ class FakePub:
 class FailedPub(FakePub):
     def search(self,q,f,s,e,log):raise u.SourceError('incomplete pagination')
 class Tests(unittest.TestCase):
+    def test_crossref_complete_title_with_separate_subtitle(self):
+        class Source:
+            message={'DOI':'10.1234/fixture','title':['A <i>myopia</i> trial'],'subtitle':['Randomized results']}
+            def json(self,url):return {'message':self.message}
+        p=raw();p['title']='A myopia trial: Randomized results.';p['classification']=u.classify(p,['mainline'])
+        self.assertEqual(u.enrich(copy.deepcopy(p),Source(),STAMP,crossref=True)['crossref']['status'],'matched')
+        p['title']='A myopia trial with other results';self.assertEqual(u.enrich(copy.deepcopy(p),Source(),STAMP,crossref=True)['crossref']['status'],'needs_review')
+        p['title']='A myopia trial: Randomized results.';p['doi']='10.1234/another';self.assertEqual(u.enrich(copy.deepcopy(p),Source(),STAMP,crossref=True)['crossref']['status'],'needs_review')
+
+    def test_crossref_matcher_revision_rechecks_previous_mismatch(self):
+        c=config();c['crossref_per_run']=5;c['crossref_identity_revision']=STAMP;s=u.new_state(c);p=record();p['crossref']=dict(status='needs_review',checked_at='2026-09-13T01:17:00+00:00');s['records'][p['id']]=p
+        class Source:
+            audit=[];calls=0
+            def json(self,url):self.calls+=1;return {'message':{'DOI':'10.1234/fixture','title':['Myopia study fixture']}}
+        http=Source()
+        with patch.object(u,'PubMed',FakePub):s,log=u.run(c,{'records':[]},s,http,STAMP)
+        self.assertEqual(http.calls,1);self.assertEqual(s['records'][p['id']]['crossref']['status'],'matched');self.assertFalse(s['records'][p['id']]['classification']['pending'])
+
     def test_selected_journal_and_publication_type_gate(self):
         c=config();c['retention']['selection']['enabled']=True;p=record();p['journal']='Nature Methods'
         cases=[('An editing experiment',['Journal Article'],'retained'),('Original data in a research letter',['Letter'],'retained'),('A narrative review',['Review'],'ordinary_review'),('A systematic review and meta-analysis',['Review'],'retained'),('A new systematic approach to editing',['Review'],'ordinary_review'),('Guidance for clinical practice',['Review','Practice Guideline'],'retained'),('Re: Prior myopia study',['Letter'],'ancillary_publication'),('Reply to Jones',['Letter'],'ancillary_publication'),('Original article title retained by correction',['Journal Article','Published Erratum'],'ancillary_publication')]

@@ -3,7 +3,7 @@
   "domain_id": "myopia-ophthalmology-methods",
   "base_version": "myopia-279-20260914-v1",
   "domain_name": "近视／眼科及有明确迁移目标的跨领域方法学",
-  "rule_version": 7,
+  "rule_version": 8,
   "overlap_days": 30,
   "bootstrap_days": 90,
   "monthly_lookback_days": 365,
@@ -7690,5 +7690,6 @@
       ],
       "type_policy": "Use indexed publication types plus explicit systematic-review/meta-analysis title phrases. Research Letters are not excluded by the Letter tag alone. Incomplete indexing does not establish original research quality."
     }
-  }
+  },
+  "crossref_identity_revision": "2026-09-14T11:47:32+00:00"
 }
