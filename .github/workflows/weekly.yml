@@ -1,0 +1,65 @@
+name: Weekly literature update
+on:
+  schedule:
+    - cron: '17 1 * * 1'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'run = retrieve and publish; republish = restore saved data and retry publication'
+        default: run
+        type: choice
+        options: [run, republish]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: literature-state-and-pages
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify updater logic
+        run: python3 -m unittest discover -s tests -v
+      - name: Restore persistent state
+        run: python3 persistence.py restore state-store
+      - name: Retrieve, verify and create cumulative release
+        id: update
+        continue-on-error: true
+        env:
+          UPDATE_MODE: ${{ inputs.mode || 'run' }}
+        run: python3 updater.py "$UPDATE_MODE" --state-dir state-store/state --output state-store/public
+      - name: Persist before publication
+        run: python3 persistence.py save state-store --message "Persist metadata before Pages publication"
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: state-store/public
+      - uses: actions/deploy-pages@v4
+        id: deployment
+      - name: Verify public HTTPS data and file-origin CORS
+        id: verification
+        env:
+          RELEASE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: python3 verify_deployment.py "$RELEASE_URL" state-store
+      - name: Persist publication receipt or failure
+        if: always()
+        env:
+          DEPLOYMENT_OUTCOME: ${{ steps.deployment.outcome }}
+          VERIFICATION_OUTCOME: ${{ steps.verification.outcome }}
+        run: |
+          python3 record_outcome.py state-store
+          if [ -d state-store/state ]; then
+            python3 persistence.py save state-store --message "Record publication outcome"
+          fi
+      - name: Surface incomplete source queries
+        if: steps.update.outcome == 'failure'
+        run: exit 1

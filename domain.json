@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "domain_id": "myopia-ophthalmology-methods",
+  "base_version": "myopia-279-20260914-v1",
+  "domain_name": "近视／眼科及有明确迁移目标的跨领域方法学",
+  "rule_version": 2,
+  "overlap_days": 30,
+  "bootstrap_days": 90,
+  "monthly_lookback_days": 365,
+  "monthly_interval_days": 28,
+  "page_size": 500,
+  "fetch_batch_size": 150,
+  "max_requests": 10000,
+  "max_records_per_query": 100000,
+  "crossref_per_run": 20,
+  "fulltext_identity_checks_per_run": 3,
+  "queries": [
+    {
+      "id": "myopia",
+      "query": "(\"Myopia\"[Mesh] OR myopia[tiab] OR myopic[tiab] OR \"axial elongation\"[tiab] OR \"ocular growth\"[tiab])",
+      "route": "mainline"
+    },
+    {
+      "id": "ocular-genetics",
+      "query": "(retina[tiab] OR retinal[tiab] OR sclera[tiab] OR choroid[tiab] OR ophthalmic[tiab] OR organoid[tiab]) AND (CRISPR[tiab] OR \"gene editing\"[tiab] OR \"base editing\"[tiab] OR \"prime editing\"[tiab] OR \"Perturb-seq\"[tiab] OR \"single cell\"[tiab] OR \"spatial transcriptomics\"[tiab])",
+      "route": "ocular"
+    },
+    {
+      "id": "tumor-methods",
+      "query": "(cancer[tiab] OR tumor[tiab] OR tumour[tiab]) AND (\"spatial perturbation\"[tiab] OR \"Perturb-seq\"[tiab] OR (\"spatial transcriptomics\"[tiab] AND (fibroblast[tiab] OR \"extracellular matrix\"[tiab])))",
+      "route": "transfer"
+    },
+    {
+      "id": "editing-methods",
+      "query": "(\"genome editing\"[tiab] OR \"base editing\"[tiab] OR \"prime editing\"[tiab] OR \"RNA editing\"[tiab] OR \"epigenome editing\"[tiab]) AND (\"off-target\"[tiab] OR \"pooled screen\"[tiab] OR prediction[tiab] OR delivery[tiab] OR software[tiab])",
+      "route": "transfer"
+    },
+    {
+      "id": "causal-methods",
+      "query": "(\"target trial emulation\"[tiab] OR \"target trial\"[tiab]) AND (discontinuation[tiab] OR cessation[tiab] OR longitudinal[tiab] OR \"time-varying\"[tiab])",
+      "route": "transfer"
+    },
+    {
+      "id": "medical-tools",
+      "query": "(ophthalmic[tiab] OR retinal[tiab] OR \"medical imaging\"[tiab]) AND (\"foundation model\"[tiab] OR \"multimodal model\"[tiab] OR \"automated analysis\"[tiab])",
+      "route": "transfer"
+    }
+  ],
+  "inclusion_policy": "明确近视/眼生长或明确眼科编辑与组学主题自动进入主线；跨领域需命中具体方法与迁移环节规则；其余保留待核对，不按阳性结果、语言、期刊或免费全文筛选。",
+  "source_policy": {
+    "primary": "PubMed E-utilities",
+    "supplement": "Europe PMC MED is a PubMed mirror, not independent corroboration",
+    "doi_check": "Crossref budgeted queue; PubMed identity may suffice while DOI check is pending",
+    "fulltext": "A requires retrieved main body and matching identity; B official index only; C no verified accessible full-text entry"
+  },
+  "limitations": [
+    "PubMed索引范围之外的中文订阅库未覆盖",
+    "非PubMed预印本未作全库增量发现；由Crossref核实的版本关系会关联",
+    "固定规则会漏掉未使用这些术语的相关研究；边界条目进入待核对",
+    "自动题录不是中文翻译或详细精读笔记"
+  ]
+}
