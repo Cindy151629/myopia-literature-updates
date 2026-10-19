@@ -58,7 +58,7 @@ def selection_reason(p,config):
     if not policy.get('enabled'):return None
     if policy.get('whitelist_only') and not extended_journal(p,config):return 'not_selected_journal'
     types=set(p.get('publication_types',[]));title=str(p.get('title','')).strip()
-    if types & set(policy.get('ancillary_types',[])) or re.search(r'^(?:reply|comment|commentary|correction|corrigendum|erratum)\b|^re\s*:',title,re.I):return 'ancillary_publication'
+    if types & (set(policy.get('ancillary_types',[])) | {'News','Newspaper Article'}) or re.search(r'^(?:reply|comment|commentary|correction|corrigendum|erratum)\b|^re\s*:|[\-–—:]\s*reply\.?$',title,re.I):return 'ancillary_publication'
     synthesis=bool(types & set(policy.get('synthesis_types',[])) or re.search(r'\bsystematic\s+review\b|\bmeta[\s\-–—]?analys(?:is|es)\b',title,re.I))
     verified=any(p.get('pmid')==r.get('pmid') and doi(p.get('doi'))==doi(r.get('doi')) for r in policy.get('verified_reports',[]))
     if policy.get('exclude_ordinary_reviews') and types & {'Review','Scoping Review'} and not synthesis and not verified:return 'ordinary_review'
@@ -214,6 +214,25 @@ def parse_book(n):
         publication_types=['Book Chapter']+[text(x) for x in c.findall('PublicationType')],publication_status='published',notices=[],aliases=[],version_relations=[],identity_verified=True,
         _abstract=' '.join(text(x) for x in c.findall('./Abstract/AbstractText')),_mesh=[],_book_accession=ids.get('bookaccession'))
 
+def scope_guard(p):
+    """Conservative disambiguation; never turn a keyword match into ocular evidence."""
+    title=p.get('title','').lower();abstract=p.get('_abstract','').lower()
+    if 'choroid plexus' in title and not re.search(r'\b(retina\w*|ophthalm\w*|ocular|sclera\w*)\b',title):
+        return '脑脉络丛不是眼脉络膜；眼科迁移价值须另行核对。'
+    if re.search(r'\bmyopi[ac]\b',title) and re.search(r'collective outcomes|politic\w*|economic\w*|policy|decision.making',title) and not re.search(r'\b(eye|ocular|retina\w*|refracti\w*)\b',title+' '+abstract):
+        return '此处myopia指决策短视，并非屈光性近视；未确认本库研究价值。'
+    if re.search(r'\b(cotton|rice|tomato|plants|insect|annelid)\b',title) and not re.search(r'\b(human|mammal\w*|mouse|mice|primate\w*)\b',title):
+        return '植物或无脊椎动物系统；需具体论证向眼科模型的方法迁移，不能仅凭编辑/眼关键词纳入。'
+    if re.search(r'\b(?:this|a) narrative review\b',abstract):
+        return '摘要明确为叙述性综述；不作为已通过原始研究/系统综述门槛的正式篇目。'
+    return None
+
+def guarded_classification(p):
+    c=copy.deepcopy(p['classification']);reason=scope_guard(p)
+    if reason:
+        c.update(family='cross_domain',topic='跨领域方法学',pending=True,reason=reason,maturity='未能确认',original_domain='其他领域（待核对）',tissues=[])
+    return c
+
 def classify(p,routes):
     title=p['title'].lower();hay=title+' '+p.get('_abstract','').lower()+' '+' '.join(p.get('_mesh',[])).lower()
     family='ophthalmology';pending=False;reason=''
@@ -244,9 +263,10 @@ def classify(p,routes):
     tissue=[label for pat,label in [('sclera','巩膜'),('retina','视网膜'),('choroid','脉络膜'),(r'\brpe\b','RPE'),('organoid','类器官')] if re.search(pat,hay)]
     original_domain='肿瘤学' if re.search(r'tumou?r|cancer',title) else '基因编辑' if re.search(r'editing|crispr',title) else '通用研究方法' if family=='cross_domain' else '眼科'
     type_label='综述、共识与分级' if any('Review' in t for t in p['publication_types']) else '临床干预与人体实验' if any('Trial' in t for t in p['publication_types']) else '研究类型待核对'
-    return dict(family=family,topic=topic,methods=methods,tissues=tissue,original_domain=original_domain,type=type_label,
+    classification=dict(family=family,topic=topic,methods=methods,tissues=tissue,original_domain=original_domain,type=type_label,
      maturity='概念性借鉴' if family=='cross_domain' and not pending else '未能确认' if family=='cross_domain' else '眼科直接证据',
      pending=pending,reason=reason,code_data_availability='未能确认')
+    return guarded_classification({**p,'classification':classification})
 
 def official_fulltext_identity(raw,p):
     """A only for matching JATS article identity plus nontrivial actual body."""
@@ -482,7 +502,10 @@ def publish_snapshot(state,config,output,base=None):
     records=[]
     for p in all_records:
         reason=retention_reason(p,config,stamp,base_ids);selection[reason]=selection.get(reason,0)+1
-        if reason in ('retained','extended_journal','baseline_metadata','jcr_unverified'):records.append(p)
+        if reason in ('retained','extended_journal','baseline_metadata','jcr_unverified'):
+            # Apply unambiguous title guards to historical state as well. Keep
+            # the saved evidence/history unchanged and never publish abstracts.
+            records.append({**p,'classification':guarded_classification(p)})
     for p in records:validate_record(p)
     snapshot=dict(schema_version=1,domain_id=config['domain_id'],base_version=config['base_version'],records=records,conflicts=list(state['conflicts'].values()))
     raw=encoded(snapshot);version=digest(raw);name='snapshots/'+version+'.json'

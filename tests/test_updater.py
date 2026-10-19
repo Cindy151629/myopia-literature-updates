@@ -19,6 +19,20 @@ class FakePub:
 class FailedPub(FakePub):
     def search(self,q,f,s,e,log):raise u.SourceError('incomplete pagination')
 class Tests(unittest.TestCase):
+    def test_scope_false_friends_and_preservation(self):
+        p=raw()
+        for title in ['People are less myopic about future than past collective outcomes.','The choroid plexus synergizes with immune cells during neuroinflammation.','Genome editing in cotton.','Efficient base editors in plants.','Deep conservation in the insect eye ground plan.']:
+            p['title']=title;c=u.classify(p,['ocular']);self.assertTrue(c['pending']);self.assertEqual(c['family'],'cross_domain')
+        p['title']='Choroidal thickness in myopic children';self.assertFalse(u.classify(p,['mainline'])['pending'])
+        p['title']='High-efficiency base editing in the retina in primates and human tissues';self.assertFalse(u.classify(p,['ocular'])['pending'])
+        p['title']='Myopia adherence';p['_abstract']='This narrative review describes adherence.';self.assertTrue(u.classify(p,['mainline'])['pending'])
+        c=config();c['retention']['selection']['enabled']=True;p=record();p['journal']='Nature Methods'
+        for title,types in [('A myopia news report',['News']),('Outcome Metrics in Myopia Control Trials-Reply.',['Journal Article'])]:
+            p.update(title=title,publication_types=types);self.assertEqual(u.retention_reason(p,c,STAMP),'ancillary_publication')
+        p=record();p['title']='People are less myopic about future than past collective outcomes.';s=u.new_state(c);s['records'][p['id']]=p;saved=copy.deepcopy(s)
+        with tempfile.TemporaryDirectory() as tmp:
+            m=u.publish_snapshot(s,c,tmp,{'records':[{'id':p['id']}]});rows=u.read(Path(tmp)/m['snapshot'])['records'];self.assertTrue(rows[0]['classification']['pending']);self.assertEqual(s,saved)
+
     def test_crossref_complete_title_with_separate_subtitle(self):
         class Source:
             message={'DOI':'10.1234/fixture','title':['A <i>myopia</i> trial'],'subtitle':['Randomized results']}
